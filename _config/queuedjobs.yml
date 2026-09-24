@@ -4,8 +4,9 @@ Name: queuedjobsettings
 SilverStripe\Core\Injector\Injector:
   QueueHandler:
     class: Symbiote\QueuedJobs\Services\DefaultQueueHandler
-  DoormanRunner:
-    class: Symbiote\QueuedJobs\Tasks\Engines\DoormanRunner
+  # A reference, not a second spec: properties are injected by the name that was asked for, so a separate
+  # DoormanRunner spec would not get the DefaultRules below (and doorman runs unlimited with no rules)
+  DoormanRunner: '%$Symbiote\QueuedJobs\Tasks\Engines\DoormanRunner'
 
   Symbiote\QueuedJobs\Services\QueuedJobService:
     properties:
@@ -22,6 +23,9 @@ SilverStripe\Core\Injector\Injector:
       MaximumProcessorUsage: 100
 
   Symbiote\QueuedJobs\Tasks\Engines\DoormanRunner:
+    # Explicit class so the DoormanRunner reference above inherits it; without it that service would try to
+    # instantiate a class literally named DoormanRunner
+    class: Symbiote\QueuedJobs\Tasks\Engines\DoormanRunner
     properties:
       DefaultRules:
         DefaultRule: '%$DefaultRule'
