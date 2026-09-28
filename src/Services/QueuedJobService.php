@@ -1428,9 +1428,18 @@ class QueuedJobService
      *
      * We use the 'getNextPendingJob' method, instead of just iterating the queue, to ensure
      * we ignore paused or stalled jobs.
+     *
+     * The maintenance lock is honoured here for the same reason the queue runners honour it
+     * (ProcessJobQueueTask, QueueRunner, DoormanRunner): while the lock is active no job may
+     * be started. Without this check any CLI process that boots the framework would still run
+     * immediate jobs at shutdown, bypassing the lock entirely.
      */
     public function onShutdown()
     {
+        if ($this->isMaintenanceLockActive()) {
+            return;
+        }
+
         $this->processJobQueue(QueuedJob::IMMEDIATE);
     }
 

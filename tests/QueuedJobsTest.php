@@ -5,6 +5,7 @@ namespace Symbiote\QueuedJobs\Tests;
 use Exception;
 use Psr\Log\LoggerInterface;
 use ReflectionClass;
+use SilverStripe\Control\Director;
 use SilverStripe\Core\Config\Config;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\ORM\DataList;
@@ -239,6 +240,42 @@ class QueuedJobsTest extends SapphireTest
         $jobs = $svc->getJobList(QueuedJob::IMMEDIATE);
         $this->assertInstanceOf(DataList::class, $jobs);
         $this->assertCount(0, $jobs);
+    }
+
+    /**
+     * The maintenance lock must stop the shutdown handler from running immediate jobs,
+     * the same way it stops the queue runners.
+     */
+    public function testImmediateQueuedJobNotRunWhileMaintenanceLockActive()
+    {
+        $fileName = 'test-lock.txt';
+        $filePath = Director::baseFolder() . DIRECTORY_SEPARATOR . $fileName;
+
+        Config::modify()->set(QueuedJobService::class, 'lock_file_enabled', true);
+        Config::modify()->set(QueuedJobService::class, 'lock_file_path', '');
+        Config::modify()->set(QueuedJobService::class, 'lock_file_name', $fileName);
+
+        $svc = $this->getService();
+        $svc->enableMaintenanceLock();
+        $this->assertTrue(file_exists($filePath ?? ''));
+
+        $job = new TestQueuedJob(QueuedJob::IMMEDIATE);
+        $job->firstJob = true;
+        $svc->queueJob($job);
+
+        $this->assertCount(1, $svc->getJobList(QueuedJob::IMMEDIATE));
+
+        // now fake a shutdown - the job must still be sitting in the queue afterwards
+        $svc->onShutdown();
+
+        $this->assertCount(1, $svc->getJobList(QueuedJob::IMMEDIATE));
+
+        $svc->disableMaintenanceLock();
+
+        // control: with the lock released the same shutdown does run the job
+        $svc->onShutdown();
+
+        $this->assertCount(0, $svc->getJobList(QueuedJob::IMMEDIATE));
     }
 
     /**
