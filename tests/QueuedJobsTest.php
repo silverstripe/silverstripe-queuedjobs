@@ -8,6 +8,7 @@ use ReflectionClass;
 use SilverStripe\Control\Director;
 use SilverStripe\Core\Config\Config;
 use SilverStripe\Core\Injector\Injector;
+use SilverStripe\ORM\DB;
 use SilverStripe\ORM\DataList;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBDatetime;
@@ -18,6 +19,7 @@ use Symbiote\QueuedJobs\Services\AbstractQueuedJob;
 use Symbiote\QueuedJobs\Services\QueuedJob;
 use Symbiote\QueuedJobs\Services\QueuedJobService;
 use Symbiote\QueuedJobs\Tests\QueuedJobsTest\TestExceptingJob;
+use Symbiote\QueuedJobs\Tests\QueuedJobsTest\TestLongStepJob;
 use Symbiote\QueuedJobs\Tests\QueuedJobsTest\TestQJService;
 use Symbiote\QueuedJobs\Tests\QueuedJobsTest\TestQueuedJob;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -386,6 +388,118 @@ class QueuedJobsTest extends SapphireTest
      * Execution of this job is broken into several "loops", each of which represents one invocation
      * of ProcessJobQueueTask
      */
+    public function testWorkerLockIsRefreshedAfterEachStep()
+    {
+        $svc = $this->getService();
+        $id = $svc->queueJob(new TestLongStepJob());
+        $expiries = [];
+        TestLongStepJob::$onStep = function (int $step) use ($id, &$expiries) {
+            $expiries[$step] = $this->readLock($id)['Expiry'];
+        };
+
+        $svc->runJob($id);
+        TestLongStepJob::$onStep = null;
+
+        // Each step sees the write after the step before: 16:00 at the start, then 3 minutes per step
+        $this->assertEquals([
+            1 => '2016-01-01 16:05:00',
+            2 => '2016-01-01 16:08:00',
+            3 => '2016-01-01 16:11:00',
+        ], $expiries);
+        $this->assertEquals(QueuedJob::STATUS_COMPLETE, QueuedJobDescriptor::get()->byID($id)->JobStatus);
+    }
+
+    public function testWorkerLockIsNotRefreshedWhenSwitchedOff()
+    {
+        Config::modify()->set(QueuedJobService::class, 'refresh_worker_lock', false);
+        $svc = $this->getService();
+        $id = $svc->queueJob(new TestLongStepJob());
+        $expiries = [];
+        TestLongStepJob::$onStep = function (int $step) use ($id, &$expiries) {
+            $expiries[$step] = $this->readLock($id)['Expiry'];
+        };
+
+        $svc->runJob($id);
+        TestLongStepJob::$onStep = null;
+
+        $this->assertEquals(array_fill(1, 3, '2016-01-01 16:05:00'), $expiries);
+    }
+
+    public function testWorkerLockTakenOverByAnotherProcessIsNotRefreshed()
+    {
+        $svc = $this->getService();
+        $id = $svc->queueJob(new TestLongStepJob());
+        TestLongStepJob::$onStep = function (int $step) use ($id) {
+            if ($step === 2) {
+                DB::prepared_query(
+                    'UPDATE "QueuedJobDescriptor" SET "Worker" = ?, "Expiry" = ? WHERE "ID" = ?',
+                    ['another worker', '2016-01-01 16:01:00', $id]
+                );
+            }
+        };
+
+        $svc->runJob($id);
+        TestLongStepJob::$onStep = null;
+
+        $this->assertEquals('2016-01-01 16:01:00', $this->readLock($id)['Expiry']);
+    }
+
+    /**
+     * Two health checks with no step in between (as during one long step), after the job has run
+     * longer than worker_ttl: a job that keeps processing steps is not restarted.
+     */
+    public function testHealthCheckDoesNotRestartAJobThatKeepsProcessingSteps()
+    {
+        $svc = $this->getService();
+        $id = $svc->queueJob(new TestLongStepJob());
+        $lock = null;
+        TestLongStepJob::$onStep = function (int $step) use ($svc, $id, &$lock) {
+            if ($step === 3) {
+                $svc->checkJobHealth(QueuedJob::QUEUED);
+                $svc->checkJobHealth(QueuedJob::QUEUED);
+                $lock = $this->readLock($id);
+            }
+        };
+
+        $svc->runJob($id);
+        TestLongStepJob::$onStep = null;
+
+        $this->assertEquals(QueuedJob::STATUS_RUN, $lock['JobStatus']);
+        $this->assertEquals(0, (int) $lock['ResumeCounts']);
+    }
+
+    /**
+     * The same run without the refresh: the health check restarts the job while it is running.
+     */
+    public function testHealthCheckRestartsTheSameJobWithoutTheRefresh()
+    {
+        Config::modify()->set(QueuedJobService::class, 'refresh_worker_lock', false);
+        $svc = $this->getService();
+        $id = $svc->queueJob(new TestLongStepJob());
+        $lock = null;
+        TestLongStepJob::$onStep = function (int $step) use ($svc, $id, &$lock) {
+            if ($step === 3) {
+                $svc->checkJobHealth(QueuedJob::QUEUED);
+                $svc->checkJobHealth(QueuedJob::QUEUED);
+                $lock = $this->readLock($id);
+            }
+        };
+
+        $svc->runJob($id);
+        TestLongStepJob::$onStep = null;
+
+        $this->assertEquals(QueuedJob::STATUS_WAIT, $lock['JobStatus']);
+        $this->assertEquals(1, (int) $lock['ResumeCounts']);
+    }
+
+    private function readLock(int $id): array
+    {
+        return DB::prepared_query(
+            'SELECT "Expiry", "Worker", "JobStatus", "ResumeCounts" FROM "QueuedJobDescriptor" WHERE "ID" = ?',
+            [$id]
+        )->record();
+    }
+
     public function testJobHealthCheck()
     {
         // Create a job and add it to the queue
