@@ -5,11 +5,11 @@ namespace Symbiote\QueuedJobs\Jobs;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Dev\BuildTask;
+use SilverStripe\PolyExecution\HttpRequestInput;
 use SilverStripe\PolyExecution\PolyOutput;
 use SilverStripe\ORM\DataObject;
 use Symbiote\QueuedJobs\Services\AbstractQueuedJob;
 use Symbiote\QueuedJobs\Services\QueuedJob;
-use Symfony\Component\Console\Input\ArrayInput;
 
 /**
  * A convenience wrapper for running BuildTask implementations.
@@ -86,7 +86,8 @@ class RunBuildTaskJob extends AbstractQueuedJob
         $getVars = [];
         parse_str($this->QueryString ?? '', $getVars);
         $output = PolyOutput::create(PolyOutput::FORMAT_ANSI);
-        $input = new ArrayInput($getVars);
+        // Bind the task's own options so it can read them with $input->getOption()
+        $input = new HttpRequestInput(new HTTPRequest('GET', '/', $getVars), $task->getOptions());
         $input->setInteractive(false);
         $task->run($input, $output);
 
