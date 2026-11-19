@@ -832,6 +832,25 @@ class QueuedJobsTest extends SapphireTest
     }
 
     /**
+     * Check that `checkJobHealth()` reports and marks only the broken jobs on the queue it checks
+     */
+    public function testBrokenJobNotificationOnlyForCheckedQueue(): void
+    {
+        $ids = [];
+        foreach ([QueuedJob::IMMEDIATE, QueuedJob::LARGE] as $queue) {
+            $descriptor = QueuedJobDescriptor::create();
+            $descriptor->JobType = $queue;
+            $descriptor->JobStatus = QueuedJob::STATUS_BROKEN;
+            $ids[$queue] = $descriptor->write();
+        }
+
+        $result = QueuedJobService::singleton()->checkJobHealth(QueuedJob::IMMEDIATE);
+
+        $this->assertEquals([$ids[QueuedJob::IMMEDIATE]], $result['broken']);
+        $this->assertEquals(0, QueuedJobDescriptor::get()->byID($ids[QueuedJob::LARGE])->NotifiedBroken);
+    }
+
+    /**
      * @param string $jobClass
      * @param int $expected
      * @throws ValidationException

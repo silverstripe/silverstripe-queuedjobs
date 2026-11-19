@@ -533,6 +533,7 @@ class QueuedJobService
         $brokenJobs = QueuedJobDescriptor::get()->filter([
             'JobStatus' => QueuedJob::STATUS_BROKEN,
             'NotifiedBroken' => 0,
+            'JobType' => $queue,
         ]);
 
         $brokenIDs = $brokenJobs->column('ID');
