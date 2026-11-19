@@ -512,6 +512,8 @@ class QueuedJobService
             }
 
             $this->restartStalledJob($stalledJob);
+
+            // Collect the IDs while looping, since restarting a job takes it out of the `$stalledJobs` query
             $stalledIDs[] = $stalledJob->ID;
         }
 
