@@ -492,6 +492,8 @@ class QueuedJobService
                 '"Expiry" IS NULL AND "LastEdited" <= ?' => $this->getInitStateExpiry()
             ]);
 
+        $stalledIDs = [];
+
         foreach ($stalledJobs as $stalledJob) {
             $jobClass = $stalledJob->Implementation;
 
@@ -510,6 +512,9 @@ class QueuedJobService
             }
 
             $this->restartStalledJob($stalledJob);
+
+            // Collect the IDs while looping, since restarting a job takes it out of the `$stalledJobs` query
+            $stalledIDs[] = $stalledJob->ID;
         }
 
         // now, find those that need to be marked before the next check
@@ -530,7 +535,6 @@ class QueuedJobService
             'NotifiedBroken' => 0,
         ]);
 
-        $stalledIDs = $stalledJobs->column('ID');
         $brokenIDs = $brokenJobs->column('ID');
         $result = [
             'stalled' => $stalledIDs,
