@@ -254,6 +254,14 @@ detected:
 ```
 */5 * * * * /path/to/silverstripe/vendor/bin/sake tasks:CheckJobHealthTask
 ```
+
+The task checks one queue per run. With no `--queue` option it checks only the default ("queued") one, so stalled or
+broken jobs on the large or immediate queues are not picked up. Schedule one run for each queue you use:
+
+```
+*/5 * * * * /path/to/silverstripe/vendor/bin/sake tasks:CheckJobHealthTask --queue=large
+```
+
 ## Special job variables
 
 It's good to be aware of special variables which should be used in your job implementation.
