@@ -728,6 +728,28 @@ class QueuedJobsTest extends SapphireTest
         $this->assertEquals(QueuedJob::STATUS_WAIT, $descriptor->JobStatus);
     }
 
+    /**
+     * Check that `checkJobHealth()` returns the IDs of the stalled jobs it restarts
+     */
+    public function testJobHealthCheckReturnsStalledJobs()
+    {
+        $svc = $this->getService();
+        $id = $svc->queueJob(new TestQueuedJob(QueuedJob::IMMEDIATE));
+
+        // -- Leave the job stuck in its initial state for long enough to count as stalled
+        DBDatetime::set_mock_now('2017-01-01 16:00:00');
+        $descriptor = QueuedJobDescriptor::get()->byID($id);
+        $descriptor->JobStatus = QueuedJob::STATUS_INIT;
+        $descriptor->LastProcessedCount = 0;
+        $descriptor->StepsProcessed = 0;
+        $descriptor->write();
+        DBDatetime::set_mock_now('2017-01-01 16:02:00');
+
+        $result = $svc->checkJobHealth(QueuedJob::IMMEDIATE);
+
+        $this->assertEquals([$id], $result['stalled']);
+    }
+
     public function testExceptionWithMemoryExhaustion()
     {
         $svc = $this->getService();
