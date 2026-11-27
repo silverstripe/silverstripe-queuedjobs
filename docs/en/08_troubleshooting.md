@@ -70,6 +70,15 @@ Symbiote\QueuedJobs\Services\QueuedJobService:
 The [`RunBuildTaskJob`](api:Symbiote\QueuedJobs\Jobs\RunBuildTaskJob) is excluded from these health checks because it can't use steps,
 so you'll need to find other ways to ensure this type of job stays healthy when using it.
 
+The [`CheckJobHealthTask`](api:Symbiote\QueuedJobs\Tasks\CheckJobHealthTask) checks one queue per run. With no
+`--queue` option it checks only the default ("queued") one, so stalled or broken jobs on the large or immediate queues
+are not picked up. If you run the task as a cron job, schedule one run for each queue you use:
+
+```
+*/5 * * * * /path/to/silverstripe/vendor/bin/sake tasks:CheckJobHealthTask
+*/5 * * * * /path/to/silverstripe/vendor/bin/sake tasks:CheckJobHealthTask --queue=large
+```
+
 ## `HTTP_HOST` not set errors
 
 ```text
